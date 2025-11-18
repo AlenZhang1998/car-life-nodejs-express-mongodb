@@ -1,6 +1,18 @@
 import axios from "axios";
+import express from "express";
 import jwt from "jsonwebtoken";
-import { getDB } from "./db.js";
+import { ObjectId } from "mongodb";
+import dotenv from "dotenv";
+import { connectDB, getDB } from "./db.js";
+
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// 让 Express 能解析 JSON 请求体
+app.use(express.json());
 
 // 微信登录：用 code 换 openid，并在数据库里创建/更新用户
 app.post("/api/auth/login", async (req, res) => {
@@ -53,18 +65,34 @@ app.post("/api/auth/login", async (req, res) => {
     const result = await users.findOneAndUpdate(
       { openid },
       {
-        $setOnInsert: { createdAt: now },
+        $setOnInsert: {
+          createdAt: now,
+          openid            // ✅ 顺便把 openid 也写进文档
+        },
         $set: baseProfile
       },
       {
         upsert: true,
+        // 如果你 driver 比较老，这个才是兼容写法：
+        // returnOriginal: false,
         returnDocument: "after"
       }
     );
-
-    const user = result.value;
-
-    // 3. 签发 token（里面带 userId / openid）
+    
+    // 这里做好兜底：有的 driver 不会返回 value
+    let user = result.value;
+    
+    if (!user) {
+      // 再查一次，确保拿到用户
+      user = await users.findOne({ openid });
+    }
+    
+    if (!user) {
+      console.error("login: upsert user but cannot read back", { openid });
+      return res.status(500).json({ error: "failed to create user" });
+    }
+    
+    // 现在 user 一定存在了，才能安全访问 _id
     const token = jwt.sign(
       {
         userId: user._id.toString(),
@@ -73,7 +101,7 @@ app.post("/api/auth/login", async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: "30d" }
     );
-
+    
     res.json({
       token,
       user: {
@@ -178,3 +206,18 @@ function authMiddleware(req, res, next) {
     return res.status(401).json({ error: "invalid token" });
   }
 }
+
+// Connect to MongoDB first, then start the HTTP server so the process stays alive.
+async function startServer() {
+  try {
+    await connectDB();
+    app.listen(PORT, () => {
+      console.log(`🚀 Server ready at http://localhost:${PORT}`);
+    });
+  } catch (err) {
+    console.error("Failed to start server:", err);
+    process.exit(1);
+  }
+}
+
+startServer();
