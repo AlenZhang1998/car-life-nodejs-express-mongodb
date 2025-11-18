@@ -2,7 +2,7 @@
 import express from "express";
 import { ObjectId } from "mongodb";
 import dotenv from "dotenv";
-import { connectDB, getDB } from "./db.js";
+import { connectDB, getDB } from "./db-test.js";
 
 dotenv.config();
 
