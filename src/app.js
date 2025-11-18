@@ -120,3 +120,26 @@ async function startServer() {
 }
 
 startServer();
+
+
+
+
+
+// 测试健康检查
+// http://localhost:3000/health
+
+// 获取加油记录
+// curl http://localhost:3000/api/refuels
+
+
+// 添加一条加油记录（POST）
+// curl -X POST http://localhost:3000/api/refuels \
+//   -H "Content-Type: application/json" \
+//   -d '{
+//     "date": "2025-11-18",
+//     "mileage": 12345,
+//     "liters": 42,
+//     "price": 7.8,
+//     "amount": 327.6,
+//     "note": "深圳宝安加油站"
+//   }'
