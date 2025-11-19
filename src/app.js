@@ -27,6 +27,7 @@ app.post("/api/auth/login", async (req, res) => {
     const secret = process.env.WECHAT_SECRET;
 
     // 1. 调用微信 jscode2session
+    // 后端用 code 去请求微信的 jscode2session拿到 openid / session_key
     const wxResp = await axios.get(
       "https://api.weixin.qq.com/sns/jscode2session",
       {
@@ -47,18 +48,28 @@ app.post("/api/auth/login", async (req, res) => {
         error: "wechat login failed",
         detail: errmsg || "no openid"
       });
+    } else if (errcode) {
+      console.error("wechat login error:", wxResp.data);
+      return res.status(400).json({
+        error: "wechat login failed",
+        detail: errmsg || `errcode: ${errcode}`
+      });
     }
 
     const db = getDB();
     const users = db.collection("users");
 
     // 2. upsert 用户信息
+    // 用 openid 在 MongoDB 里 upsert 用户：
+    //   如果是新用户：插入一条记录（含 openid, createdAt 等）
+    //   老用户：更新头像、昵称等
     const now = new Date();
 
     const baseProfile = {
       nickname: userInfo?.nickName || "",
       avatarUrl: userInfo?.avatarUrl || "",
       gender: typeof userInfo?.gender === "number" ? userInfo.gender : 0,
+      sessionKey: session_key || "",
       updatedAt: now
     };
 
@@ -93,6 +104,9 @@ app.post("/api/auth/login", async (req, res) => {
     }
     
     // 现在 user 一定存在了，才能安全访问 _id
+    // 生成一个 JWT token，里面带：
+    //     userId
+    //     openid
     const token = jwt.sign(
       {
         userId: user._id.toString(),
@@ -102,6 +116,7 @@ app.post("/api/auth/login", async (req, res) => {
       { expiresIn: "30d" }
     );
     
+    // 返回给前端
     res.json({
       token,
       user: {
