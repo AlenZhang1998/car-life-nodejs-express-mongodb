@@ -147,6 +147,8 @@ app.get("/api/profile", authMiddleware, async (req, res) => {
     res.json({
       nickname: user.nickname || "",
       avatarUrl: user.avatarUrl || "",
+      username: user.username || "",
+      userAvatar: user.userAvatar || "",
       gender: user.gender ?? 0,
       deliveryDate: user.deliveryDate || "",
       favoriteCarModel: user.favoriteCarModel || "",
@@ -166,7 +168,7 @@ app.put("/api/profile", authMiddleware, async (req, res) => {
     const users = db.collection("users");
 
     const {
-      nickname,
+      username,
       avatarUrl,
       gender,
       deliveryDate,
@@ -179,7 +181,7 @@ app.put("/api/profile", authMiddleware, async (req, res) => {
       updatedAt: new Date()
     };
 
-    if (nickname != null) update.nickname = nickname;
+    if (username != null) update.username = username;
     if (avatarUrl != null) update.avatarUrl = avatarUrl;
     if (gender != null) update.gender = Number(gender);
     if (deliveryDate != null) update.deliveryDate = deliveryDate;
