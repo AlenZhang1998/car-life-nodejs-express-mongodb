@@ -11,6 +11,20 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const formatJoinDateValue = (value) => {
+  if (!value) {
+    return "";
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 // 让 Express 能解析 JSON 请求体
 app.use(express.json());
 
@@ -63,7 +77,7 @@ app.post("/api/auth/login", async (req, res) => {
     // 用 openid 在 MongoDB 里 upsert 用户：
     //   如果是新用户：插入一条记录（含 openid, createdAt 等）
     //   老用户：更新头像、昵称等
-    const now = new Date();
+    const now = new Date()
 
     const baseProfile = {
       nickname: userInfo?.nickName || "",
@@ -71,37 +85,47 @@ app.post("/api/auth/login", async (req, res) => {
       gender: typeof userInfo?.gender === "number" ? userInfo.gender : 0,
       sessionKey: session_key || "",
       updatedAt: now
-    };
+    }
 
     const result = await users.findOneAndUpdate(
       { openid },
       {
+        // 只在“第一次插入”时生效
         $setOnInsert: {
           createdAt: now,
-          openid            // ✅ 顺便把 openid 也写进文档
+          joinDate: now,  // 首次登录时间
+          openid
         },
+        // 每次登录都更新的字段
         $set: baseProfile
       },
       {
         upsert: true,
-        // 如果你 driver 比较老，这个才是兼容写法：
-        // returnOriginal: false,
-        returnDocument: "after"
+        returnDocument: "after"   // 老 driver: returnOriginal: false
       }
-    );
-    
-    // 这里做好兜底：有的 driver 不会返回 value
-    let user = result.value;
-    
+    )
+
+    // 兜底：有些 driver 拿不到 value，就查一次
+    let user = result.value
     if (!user) {
-      // 再查一次，确保拿到用户
-      user = await users.findOne({ openid });
+      user = await users.findOne({ openid })
     }
-    
     if (!user) {
-      console.error("login: upsert user but cannot read back", { openid });
-      return res.status(500).json({ error: "failed to create user" });
+      console.error("login: upsert user but cannot read back", { openid })
+      return res.status(500).json({ error: "failed to create user" })
     }
+
+    // 兼容“旧数据没有 joinDate”的情况（比如你上线 joinDate 字段之前）
+    if (!user.joinDate) {
+      const joinDate = user.createdAt || now
+      await users.updateOne(
+        { _id: user._id },
+        { $set: { joinDate } }
+      )
+      user.joinDate = joinDate
+    }
+
+    const joinDateDisplay = formatJoinDateValue(user.joinDate || user.createdAt || now)
     
     // 现在 user 一定存在了，才能安全访问 _id
     // 生成一个 JWT token，里面带：
@@ -123,7 +147,9 @@ app.post("/api/auth/login", async (req, res) => {
         id: user._id,
         openid,
         nickname: user.nickname,
-        avatarUrl: user.avatarUrl
+        avatarUrl: user.avatarUrl,
+        username: user.username || user.nickname || "",
+        joinDate: joinDateDisplay
       }
     });
   } catch (err) {
@@ -153,7 +179,8 @@ app.get("/api/profile", authMiddleware, async (req, res) => {
       deliveryDate: user.deliveryDate || "",
       favoriteCarModel: user.favoriteCarModel || "",
       phone: user.phone || "",
-      email: user.email || ""
+      email: user.email || "",
+      joinDate: formatJoinDateValue(user.joinDate || user.createdAt || "")
     });
   } catch (err) {
     console.error("GET /api/profile error:", err);
