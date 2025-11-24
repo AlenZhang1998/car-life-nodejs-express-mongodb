@@ -149,6 +149,7 @@ app.post("/api/auth/login", async (req, res) => {
         nickname: user.nickname,
         avatarUrl: user.avatarUrl,
         username: user.username || user.nickname || "",
+        userAvatar: user.userAvatar || user.userAvatar,
         joinDate: joinDateDisplay
       }
     });
@@ -196,7 +197,7 @@ app.put("/api/profile", authMiddleware, async (req, res) => {
 
     const {
       username,
-      avatarUrl,
+      userAvatar,
       gender,
       deliveryDate,
       favoriteCarModel,
@@ -209,7 +210,7 @@ app.put("/api/profile", authMiddleware, async (req, res) => {
     };
 
     if (username != null) update.username = username;
-    if (avatarUrl != null) update.avatarUrl = avatarUrl;
+    if (userAvatar != null) update.userAvatar = userAvatar;
     if (gender != null) update.gender = Number(gender);
     if (deliveryDate != null) update.deliveryDate = deliveryDate;
     if (favoriteCarModel != null) update.favoriteCarModel = favoriteCarModel;
