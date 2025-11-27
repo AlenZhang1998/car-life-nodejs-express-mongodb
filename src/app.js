@@ -29,6 +29,11 @@ const formatJoinDateValue = (value) => {
 // 让 Express 能解析 JSON 请求体
 app.use(express.json());
 
+// 让 Express 识别微信小程序上传的 multipart/form-data
+const upload = multer({
+  storage: multer.memoryStorage()     // 文件放在内存 buffer 里，方便直接传 COS
+})
+
 // 微信登录：用 code 换 openid，并在数据库里创建/更新用户
 app.post("/api/auth/login", async (req, res) => {
   try {
@@ -258,7 +263,7 @@ app.post('/api/upload/avatar', authMiddleware, upload.single('file'), async (req
         } 
       }
     )
-    res.json({ success: true, userAvatar: url })
+    res.json({ success: true, url: url })
   } catch (err) {
     console.error("POST /api/upload/avatar error:", err);
     res.status(500).json({ error: "server error" });
