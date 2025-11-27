@@ -4,7 +4,8 @@ import jwt from "jsonwebtoken";
 import { ObjectId } from "mongodb";
 import dotenv from "dotenv";
 import { connectDB, getDB } from "./db.js";
-
+import cos from "./cos.js"
+import multer from "multer"
 
 dotenv.config();
 
@@ -251,6 +252,40 @@ function authMiddleware(req, res, next) {
     return res.status(401).json({ error: "invalid token" });
   }
 }
+
+// 上传头像到COS
+function uploadAvatarToCOS({fileBuffer, fileName, mimeType}) {
+  return new Promise((resolve, reject) => {
+    const Bucket = process.env.TENCENT_COS_BUCKET
+    const Region = process.env.TENCENT_COS_REGION
+
+    // 存在 COS 里的路径：avatar/xxxxxx.jpg
+    const ext = mimeType.split("/")[1] || "jpg"
+    const key = `avatar/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`
+
+    cos.putObject(
+      {
+        Bucket,
+        Region,
+        Key: key,
+        Body: fileBuffer,
+        ContentLength: fileBuffer.length,
+        ContentType: mimeType
+      },
+      (err, data) => {
+        if (err) {
+          console.error("COS 上传失败：", err)
+          return reject(err)
+        }
+
+        // 生成公网访问 URL（默认域名格式）
+        const url = `https://${Bucket}.cos.${Region}.myqcloud.com/${key}`
+        resolve({ url, key, data })
+      }
+    )
+  })
+}
+
 
 // Connect to MongoDB first, then start the HTTP server so the process stays alive.
 async function startServer() {
