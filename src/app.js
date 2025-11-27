@@ -230,6 +230,41 @@ app.put("/api/profile", authMiddleware, async (req, res) => {
   }
 });
 
+// 上传头像
+app.post('/api/upload/avatar', authMiddleware, upload.single('file'), async (req, res) => {
+  try {
+    const userId = req.user.userId
+    const file = req.file
+    if (!file) {
+      return res.status(400).json({ error: "no file" })
+    }
+
+    // 1. 上传头像到 COS
+    const { url, key, data } = await uploadAvatarToCOS({
+      fileBuffer: file.buffer,
+      fileName: file.originalname,
+      mimeType: file.mimetype
+    })
+
+    // 2. 更新用户头像 userAvatar
+    const db = getDB()
+    const users = db.collection("users")
+    
+    await users.updateOne(
+      { _id: new ObjectId(userId) },
+      { $set: { 
+          userAvatar: url,
+          updatedAt: new Date()
+        } 
+      }
+    )
+    res.json({ success: true, userAvatar: url })
+  } catch (err) {
+    console.error("POST /api/upload/avatar error:", err);
+    res.status(500).json({ error: "server error" });
+  }
+})
+
 // 鉴权中间件
 function authMiddleware(req, res, next) {
   const authHeader = req.headers["authorization"] || "";
