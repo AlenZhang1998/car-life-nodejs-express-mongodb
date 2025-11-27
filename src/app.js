@@ -150,7 +150,7 @@ app.post("/api/auth/login", async (req, res) => {
         nickname: user.nickname,
         avatarUrl: user.avatarUrl,
         username: user.username || user.nickname || "",
-        userAvatar: user.userAvatar || user.userAvatar,
+        userAvatar: user.userAvatar || user.avatarUrl || "",
         joinDate: joinDateDisplay
       }
     });
