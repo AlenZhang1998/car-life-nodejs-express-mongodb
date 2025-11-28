@@ -270,6 +270,76 @@ app.post('/api/upload/avatar', authMiddleware, upload.single('file'), async (req
   }
 })
 
+// 新增加油记录
+app.post('/api/refuels', authMiddleware, async (req, res) => {
+  try {
+    const db = getDB()
+    const refuels = db.collection("refuels")
+
+    const userId = req.user.userId
+    if (!userId) {
+      return res.status(401).json({ error: "no userId in token" })
+    }
+
+    // 前端传过来的字段
+    const {
+      date,               // '2025-11-28'
+      time,               // '22:35'
+      odometer,           // 里程
+      volume,             // 加油量(L)
+      amount,             // 金额(元)
+      pricePerL,          // 单价(元/L)
+      fuelGrade,          // 92#/95# ...
+      isFullTank,         // 是否加满
+      warningLight,       // 是否亮灯
+      hasPreviousRecord,  // 上次是否记录
+      remark              // 备注
+    } = req.body
+
+    // 简单必填校验
+    if (!date || !time || volume == null || amount == null || pricePerL == null || odometer == null) {
+      return res.status(400).json({ error: 'date, time, odometer, volume, amount, pricePerL are required' })
+    }
+
+    const now = new Date()
+    // 把 date + time 拼成一个 JS Date（存成本次加油时间）
+    const isoString = `${date}T${time}:00`
+    const refuelDate = new Date(isoString)
+
+    const doc = {
+      userId,
+      refuelDate,                           // 本次加油时间
+      date,                                 // 原始字符串也可以保留
+      time,
+      odometer: Number(odometer),
+      volume: Number(volume),
+      amount: Number(amount),
+      pricePerL: Number(pricePerL),
+      fuelGrade: fuelGrade || '',
+      isFullTank: !!isFullTank,
+      warningLight: !!warningLight,
+      hasPreviousRecord: !!hasPreviousRecord,
+      remark: remark || '',
+      createdAt: now,
+      updatedAt: now
+    }
+
+    const result = await refuels.insertOne(doc)
+
+    return res.json({
+      success: true,
+      data: {
+        _id: result.insertedId,
+        ...doc
+      }
+    })
+
+  } catch (err) {
+    console.error('POST /api/refuels error:', err)
+    return res.status(500).json({ error: 'server error' })
+  }
+})
+
 // 鉴权中间件
 function authMiddleware(req, res, next) {
   const authHeader = req.headers["authorization"] || "";
