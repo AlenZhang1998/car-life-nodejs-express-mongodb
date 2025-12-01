@@ -340,6 +340,125 @@ app.post('/api/refuels', authMiddleware, async (req, res) => {
   }
 })
 
+// 获取加油记录列表
+app.get('/api/refuels/list', authMiddleware, async (req, res) => {
+  try {
+    const db = getDB()
+    const refuels = db.collection("refuels")
+
+    const userIdStr = req.user && req.user.userId
+    if (!userIdStr) {
+      return res.status(401).json({ error: 'no userId in token' })
+    }
+    const userId = new ObjectId(userIdStr)
+
+    // year 从 query 里取，没传就用当前年
+    const year = parseInt(req.query.year || new Date().getFullYear(), 10)
+    const start = new Date(year, 0, 1)
+    const end = new Date(year + 1, 0, 1)
+
+    // 按时间升序查出来，方便计算间隔里程
+    const docs = await refuels
+      .find({
+        userId,
+        refuelDate: { $gte: start, $lt: end }
+      })
+      .sort({ refuelDate: 1 })
+      .toArray()
+
+    let totalAmount = 0
+    let totalDistance = 0
+    let totalPriceSum = 0
+    let totalPriceCount = 0
+    let totalLper100Sum = 0
+    let totalLper100Count = 0
+
+    let prev = null
+
+    for (const doc of docs) {
+      totalAmount += Number(doc.amount || 0)
+      if (doc.pricePerL != null) {
+        totalPriceSum += Number(doc.pricePerL)
+        totalPriceCount++
+      }
+
+      // 计算两次加油之间的里程
+      if (prev && doc.odometer != null && prev.odometer != null) {
+        const dist = Number(doc.odometer) - Number(prev.odometer)
+        if (dist > 0) {
+          doc.distance = dist
+          totalDistance += dist
+
+          // 只在“加满油”时计算百公里油耗
+          if (doc.isFullTank && doc.volume != null) {
+            const l100 = (Number(doc.volume) / dist) * 100
+            doc.lPer100km = Number(l100.toFixed(2))
+            totalLper100Sum += doc.lPer100km
+            totalLper100Count++
+          }
+
+          if (doc.amount != null) {
+            const pricePerKm = Number(doc.amount) / dist
+            doc.pricePerKm = Number(pricePerKm.toFixed(2))
+          }
+        }
+      }
+
+      prev = doc
+    }
+
+    const avgPricePerL =
+      totalPriceCount > 0 ? Number((totalPriceSum / totalPriceCount).toFixed(2)) : 0
+
+    const avgFuelConsumption =
+      totalLper100Count > 0
+        ? Number((totalLper100Sum / totalLper100Count).toFixed(2))
+        : 0
+
+    // 映射成前端列表需要的格式（倒序显示：最近在前）
+    const list = docs
+      .slice()
+      .reverse()
+      .map((doc) => {
+        const d = doc.refuelDate ? new Date(doc.refuelDate) : new Date()
+        const month = String(d.getMonth() + 1).padStart(2, '0')
+        const day = String(d.getDate()).padStart(2, '0')
+        const monthDay = `${month}/${day}`
+
+        return {
+          _id: String(doc._id),
+          monthDay,                      // 10/18
+          lPer100km: doc.lPer100km ?? null,
+          distance: doc.distance ?? null,
+          amount: doc.amount ?? null,
+          pricePerL: doc.pricePerL ?? null,
+          volume: doc.volume ?? null,
+          fuelGrade: doc.fuelGrade ?? '',
+          isFullTank: !!doc.isFullTank,
+          pricePerKm: doc.pricePerKm ?? null
+        }
+      })
+
+    return res.json({
+      success: true,
+      data: {
+        summary: {
+          year,
+          totalAmount: Number(totalAmount.toFixed(2)),
+          avgFuelConsumption,
+          avgPricePerL,
+          totalDistance
+        },
+        records: list
+      }
+    })
+
+  } catch (err) {
+    console.error('GET /api/refuels error:', err)
+    return res.status(500).json({ error: 'server error' })
+  }
+})
+
 // 鉴权中间件
 function authMiddleware(req, res, next) {
   const authHeader = req.headers["authorization"] || "";
