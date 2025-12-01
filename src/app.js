@@ -348,85 +348,74 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
     const start = new Date(year, 0, 1);
     const end = new Date(year + 1, 0, 1);
 
-    // 按时间升序查出来，方便计算间隔里程
+    // 时间升序查出，当成「行驶轨迹」
     const docs = await refuels
-      .find({ userId, refuelDate: { $gte: start, $lt: end } })
+      .find({
+        userId,
+        refuelDate: { $gte: start, $lt: end }
+      })
       .sort({ refuelDate: 1 })
       .toArray();
 
-    let totalAmount = 0;
-    let totalDistance = 0;
-    let totalPriceSum = 0;
-    let totalPriceCount = 0;
-    let totalLper100Sum = 0;
-    let totalLper100Count = 0;
+    // 汇总数据
+    let totalAmount = 0; // 总花费（所有记录）
+    let totalVolume = 0; // 总加油量（所有记录）
 
-    let anchorOdo = null; // 这一段路程的起点里程
-    let accVolume = 0; // 从起点之后累积的油量
+    let totalDistance = 0; // 参与统计的“区间总里程”
+    let totalVolumeUsed = 0; // 参与统计的“区间总油量”
+
+    let prev = null; // 上一次加油记录（按时间）
 
     for (const doc of docs) {
-      totalAmount += Number(doc.amount || 0);
+      const amountNum = Number(doc.amount || 0);
+      const volumeNum = Number(doc.volume || 0);
 
-      if (doc.pricePerL != null) {
-        totalPriceSum += Number(doc.pricePerL);
-        totalPriceCount++;
-      }
+      totalAmount += amountNum;
+      totalVolume += volumeNum;
 
-      const odo = doc.odometer != null ? Number(doc.odometer) : null;
-      const vol = doc.volume != null ? Number(doc.volume) : null;
+      // 默认区间数据先清空
+      doc.distance = null;
+      doc.lPer100km = null;
+      doc.pricePerKm = null;
 
-      // 1️⃣ 用户明确说「上次没记」
-      if (doc.hasPreviousRecord === false) {
-        anchorOdo = odo;
-        accVolume = 0;
-        // 这一段前面的数据作废，不计算油耗
-        continue;
-      }
+      // 需要：当前 & 上一次 都有合法 odometer，并且当前 > 上一次
+      if (prev && doc.odometer != null && prev.odometer != null) {
+        const currOdo = Number(doc.odometer);
+        const prevOdo = Number(prev.odometer);
+        const dist = currOdo - prevOdo;
 
-      // 2️⃣ 初始化起点（第一条有效记录）
-      if (anchorOdo == null && odo != null) {
-        anchorOdo = odo;
-        accVolume = 0;
-        continue;
-      }
+        if (dist > 0) {
+          // 区间里程
+          doc.distance = dist;
+          totalDistance += dist;
 
-      // 3️⃣ 累加本次加油量
-      if (vol != null) {
-        accVolume += vol;
-      }
+          // 区间油耗：用“当前这次加了多少升”来算上一段路
+          if (volumeNum > 0) {
+            const l100 = (volumeNum / dist) * 100;
+            doc.lPer100km = Number(l100.toFixed(2));
 
-      // 4️⃣ 当前加满油 -> 可以结算这一段
-      if (doc.isFullTank && odo != null && anchorOdo != null && odo > anchorOdo && accVolume > 0) {
-        const dist = odo - anchorOdo;
+            totalVolumeUsed += volumeNum;
+          }
 
-        doc.distance = dist;
-
-        const l100 = (accVolume / dist) * 100;
-        doc.lPer100km = Number(l100.toFixed(2));
-
-        totalDistance += dist;
-        totalLper100Sum += doc.lPer100km;
-        totalLper100Count++;
-
-        if (doc.amount != null) {
-          const pricePerKm = Number(doc.amount) / dist;
-          doc.pricePerKm = Number(pricePerKm.toFixed(2));
+          // 区间单公里成本：当前这次花的钱 / 这一段跑的里程
+          if (amountNum > 0) {
+            const pricePerKm = amountNum / dist;
+            doc.pricePerKm = Number(pricePerKm.toFixed(2));
+          }
         }
-
-        // 以当前这次加满为新起点
-        anchorOdo = odo;
-        accVolume = 0;
       }
+
+      prev = doc;
     }
 
-    // 年度 summary
-    const avgPricePerL =
-      totalPriceCount > 0 ? Number((totalPriceSum / totalPriceCount).toFixed(2)) : 0;
+    // 加权平均油价：总花费 / 总加油量
+    const avgPricePerL = totalVolume > 0 ? Number((totalAmount / totalVolume).toFixed(2)) : 0;
 
+    // 全年平均油耗：总油量 / 总里程 * 100
     const avgFuelConsumption =
-      totalLper100Count > 0 ? Number((totalLper100Sum / totalLper100Count).toFixed(2)) : 0;
+      totalDistance > 0 ? Number(((totalVolumeUsed / totalDistance) * 100).toFixed(2)) : 0;
 
-    // 映射成前端列表需要的格式（倒序显示：最近在前）
+    // 输出给前端的列表（按时间倒序：最近在前）
     const list = docs
       .slice()
       .reverse()
@@ -438,15 +427,15 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
 
         return {
           _id: String(doc._id),
-          monthDay, // 10/18
-          lPer100km: doc.lPer100km ?? null,
-          distance: doc.distance ?? null,
-          amount: doc.amount ?? null,
-          pricePerL: doc.pricePerL ?? null,
-          volume: doc.volume ?? null,
+          monthDay, // 11/23
+          lPer100km: doc.lPer100km, // 区间油耗（可能为 null）
+          distance: doc.distance, // 区间里程（可能为 null）
+          amount: doc.amount ?? null, // 本次加油金额
+          pricePerL: doc.pricePerL ?? null, // 单价（元/升）
+          volume: doc.volume ?? null, // 加油量（升）
           fuelGrade: doc.fuelGrade ?? "",
-          isFullTank: !!doc.isFullTank,
-          pricePerKm: doc.pricePerKm ?? null
+          isFullTank: !!doc.isFullTank, // 是否加满
+          pricePerKm: doc.pricePerKm ?? null // 区间单公里成本
         };
       });
 
@@ -464,7 +453,7 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
       }
     });
   } catch (err) {
-    console.error("GET /api/refuels error:", err);
+    console.error("GET /api/refuels/list error:", err);
     return res.status(500).json({ error: "server error" });
   }
 });
