@@ -21,11 +21,7 @@ app.get("/health", (req, res) => {
 app.get("/api/refuels", async (req, res) => {
   try {
     const db = getDB();
-    const refuels = await db
-      .collection("refuels")
-      .find({})
-      .sort({ date: -1 })
-      .toArray();
+    const refuels = await db.collection("refuels").find({}).sort({ date: -1 }).toArray();
 
     res.json(refuels);
   } catch (err) {
@@ -90,9 +86,7 @@ app.delete("/api/refuels/:id", async (req, res) => {
     const db = getDB();
     const { id } = req.params;
 
-    const result = await db
-      .collection("refuels")
-      .deleteOne({ _id: new ObjectId(id) });
+    const result = await db.collection("refuels").deleteOne({ _id: new ObjectId(id) });
 
     if (result.deletedCount === 0) {
       return res.status(404).json({ error: "Record not found" });
@@ -121,16 +115,11 @@ async function startServer() {
 
 startServer();
 
-
-
-
-
 // 测试健康检查
 // http://localhost:3000/health
 
 // 获取加油记录
 // curl http://localhost:3000/api/refuels
-
 
 // 添加一条加油记录（POST）
 // curl -X POST http://localhost:3000/api/refuels \
