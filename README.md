@@ -7,7 +7,7 @@
 - 微信 `jscode2session` 登录：用 `code` 换取 `openid` 并保存用户基础信息，返回 JWT。
 - 用户档案：支持查询与更新昵称、头像、交付日期、联系方式等字段。
 - 头像上传：通过 `multer` 解析微信小程序的 `multipart/form-data`，并上传至腾讯云 COS。
-- 加油记录：记录时间、里程、油量、油价及备注。
+- 加油记录：记录时间、里程、油量、油价及备注，还能自动计算区间油耗、百公里油耗及单公里成本。
 - MongoDB 连接封装，服务启动前确保数据库就绪。
 
 ## 技术栈
@@ -64,6 +64,7 @@ TENCENT_COS_REGION=ap-shanghai
 | PUT    | `/api/profile`       | 更新档案字段                          |
 | POST   | `/api/upload/avatar` | 上传头像至 COS，自动更新 `userAvatar` |
 | POST   | `/api/refuels`       | 新增一条加油记录                      |
+| GET    | `/api/refuels/list`  | 获取某年加油记录及年度汇总            |
 
 > `GET/PUT /api/profile`、`POST /api/upload/avatar`、`POST /api/refuels` 均需要 `Authorization: Bearer <token>`。
 
@@ -134,6 +135,46 @@ TENCENT_COS_REGION=ap-shanghai
 ```
 
 字段 `date/time/odometer/volume/amount/pricePerL` 为必填。
+
+### 加油记录列表 `GET /api/refuels/list`
+
+- Query：`year`（可选），默认为当前年份。
+- 需携带 `Bearer` Token。
+- 返回该年份所有加油记录的 summary 及记录列表，服务端会按时间顺序计算：
+  - `distance`：与上一条记录的里程差，表示本段行驶里程；
+  - `lPer100km`：上一段路的百公里油耗（基于当前加油量）；
+  - `pricePerKm`：上一段路的平均单公里成本。
+
+示例响应：
+
+```json
+{
+  "success": true,
+  "data": {
+    "summary": {
+      "year": 2024,
+      "totalAmount": 3845.6,
+      "avgFuelConsumption": 8.1,
+      "avgPricePerL": 7.35,
+      "totalDistance": 6120
+    },
+    "records": [
+      {
+        "_id": "6567...",
+        "monthDay": "11/23",
+        "volume": 45,
+        "amount": 326.7,
+        "pricePerL": 7.26,
+        "distance": 310,
+        "lPer100km": 7.42,
+        "pricePerKm": 1.05,
+        "fuelGrade": "92#",
+        "isFullTank": true
+      }
+    ]
+  }
+}
+```
 
 ## 其他说明
 
