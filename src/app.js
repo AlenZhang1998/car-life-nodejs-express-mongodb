@@ -4,8 +4,8 @@ import jwt from "jsonwebtoken";
 import { ObjectId } from "mongodb";
 import dotenv from "dotenv";
 import { connectDB, getDB } from "./db.js";
-import cos from "./cos.js"
-import multer from "multer"
+import cos from "./cos.js";
+import multer from "multer";
 
 dotenv.config();
 
@@ -31,8 +31,8 @@ app.use(express.json());
 
 // 让 Express 识别微信小程序上传的 multipart/form-data
 const upload = multer({
-  storage: multer.memoryStorage()     // 文件放在内存 buffer 里，方便直接传 COS
-})
+  storage: multer.memoryStorage() // 文件放在内存 buffer 里，方便直接传 COS
+});
 
 // 微信登录：用 code 换 openid，并在数据库里创建/更新用户
 app.post("/api/auth/login", async (req, res) => {
@@ -48,17 +48,14 @@ app.post("/api/auth/login", async (req, res) => {
 
     // 1. 调用微信 jscode2session
     // 后端用 code 去请求微信的 jscode2session拿到 openid / session_key
-    const wxResp = await axios.get(
-      "https://api.weixin.qq.com/sns/jscode2session",
-      {
-        params: {
-          appid,
-          secret,
-          js_code: code,
-          grant_type: "authorization_code"
-        }
+    const wxResp = await axios.get("https://api.weixin.qq.com/sns/jscode2session", {
+      params: {
+        appid,
+        secret,
+        js_code: code,
+        grant_type: "authorization_code"
       }
-    );
+    });
 
     const { openid, session_key, errcode, errmsg } = wxResp.data;
 
@@ -83,7 +80,7 @@ app.post("/api/auth/login", async (req, res) => {
     // 用 openid 在 MongoDB 里 upsert 用户：
     //   如果是新用户：插入一条记录（含 openid, createdAt 等）
     //   老用户：更新头像、昵称等
-    const now = new Date()
+    const now = new Date();
 
     const baseProfile = {
       nickname: userInfo?.nickName || "",
@@ -91,7 +88,7 @@ app.post("/api/auth/login", async (req, res) => {
       gender: typeof userInfo?.gender === "number" ? userInfo.gender : 0,
       sessionKey: session_key || "",
       updatedAt: now
-    }
+    };
 
     const result = await users.findOneAndUpdate(
       { openid },
@@ -99,7 +96,7 @@ app.post("/api/auth/login", async (req, res) => {
         // 只在“第一次插入”时生效
         $setOnInsert: {
           createdAt: now,
-          joinDate: now,  // 首次登录时间
+          joinDate: now, // 首次登录时间
           openid
         },
         // 每次登录都更新的字段
@@ -107,32 +104,29 @@ app.post("/api/auth/login", async (req, res) => {
       },
       {
         upsert: true,
-        returnDocument: "after"   // 老 driver: returnOriginal: false
+        returnDocument: "after" // 老 driver: returnOriginal: false
       }
-    )
+    );
 
     // 兜底：有些 driver 拿不到 value，就查一次
-    let user = result.value
+    let user = result.value;
     if (!user) {
-      user = await users.findOne({ openid })
+      user = await users.findOne({ openid });
     }
     if (!user) {
-      console.error("login: upsert user but cannot read back", { openid })
-      return res.status(500).json({ error: "failed to create user" })
+      console.error("login: upsert user but cannot read back", { openid });
+      return res.status(500).json({ error: "failed to create user" });
     }
 
     // 兼容“旧数据没有 joinDate”的情况（比如你上线 joinDate 字段之前）
     if (!user.joinDate) {
-      const joinDate = user.createdAt || now
-      await users.updateOne(
-        { _id: user._id },
-        { $set: { joinDate } }
-      )
-      user.joinDate = joinDate
+      const joinDate = user.createdAt || now;
+      await users.updateOne({ _id: user._id }, { $set: { joinDate } });
+      user.joinDate = joinDate;
     }
 
-    const joinDateDisplay = formatJoinDateValue(user.joinDate || user.createdAt || now)
-    
+    const joinDateDisplay = formatJoinDateValue(user.joinDate || user.createdAt || now);
+
     // 现在 user 一定存在了，才能安全访问 _id
     // 生成一个 JWT token，里面带：
     //     userId
@@ -145,7 +139,7 @@ app.post("/api/auth/login", async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: "30d" }
     );
-    
+
     // 返回给前端
     res.json({
       token,
@@ -201,15 +195,7 @@ app.put("/api/profile", authMiddleware, async (req, res) => {
     const db = getDB();
     const users = db.collection("users");
 
-    const {
-      username,
-      userAvatar,
-      gender,
-      deliveryDate,
-      favoriteCarModel,
-      phone,
-      email
-    } = req.body;
+    const { username, userAvatar, gender, deliveryDate, favoriteCarModel, phone, email } = req.body;
 
     const update = {
       updatedAt: new Date()
@@ -223,10 +209,7 @@ app.put("/api/profile", authMiddleware, async (req, res) => {
     if (phone != null) update.phone = phone;
     if (email != null) update.email = email;
 
-    await users.updateOne(
-      { _id: new ObjectId(req.user.userId) },
-      { $set: update }
-    );
+    await users.updateOne({ _id: new ObjectId(req.user.userId) }, { $set: update });
 
     res.json({ success: true });
   } catch (err) {
@@ -236,12 +219,12 @@ app.put("/api/profile", authMiddleware, async (req, res) => {
 });
 
 // 上传头像
-app.post('/api/upload/avatar', authMiddleware, upload.single('file'), async (req, res) => {
+app.post("/api/upload/avatar", authMiddleware, upload.single("file"), async (req, res) => {
   try {
-    const userId = req.user.userId
-    const file = req.file
+    const userId = req.user.userId;
+    const file = req.file;
     if (!file) {
-      return res.status(400).json({ error: "no file" })
+      return res.status(400).json({ error: "no file" });
     }
 
     // 1. 上传头像到 COS
@@ -249,82 +232,92 @@ app.post('/api/upload/avatar', authMiddleware, upload.single('file'), async (req
       fileBuffer: file.buffer,
       fileName: file.originalname,
       mimeType: file.mimetype
-    })
+    });
 
     // 2. 更新用户头像 userAvatar
-    const db = getDB()
-    const users = db.collection("users")
-    
+    const db = getDB();
+    const users = db.collection("users");
+
     await users.updateOne(
       { _id: new ObjectId(userId) },
-      { $set: { 
+      {
+        $set: {
           userAvatar: url,
           updatedAt: new Date()
-        } 
+        }
       }
-    )
-    res.json({ success: true, url: url })
+    );
+    res.json({ success: true, url: url });
   } catch (err) {
     console.error("POST /api/upload/avatar error:", err);
     res.status(500).json({ error: "server error" });
   }
-})
+});
 
 // 新增加油记录
-app.post('/api/refuels', authMiddleware, async (req, res) => {
+app.post("/api/refuels", authMiddleware, async (req, res) => {
   try {
-    const db = getDB()
-    const refuels = db.collection("refuels")
+    const db = getDB();
+    const refuels = db.collection("refuels");
 
-    const userId = req.user.userId
+    const userId = req.user.userId;
     if (!userId) {
-      return res.status(401).json({ error: "no userId in token" })
+      return res.status(401).json({ error: "no userId in token" });
     }
 
     // 前端传过来的字段
     const {
-      date,               // '2025-11-28'
-      time,               // '22:35'
-      odometer,           // 里程
-      volume,             // 加油量(L)
-      amount,             // 金额(元)
-      pricePerL,          // 单价(元/L)
-      fuelGrade,          // 92#/95# ...
-      isFullTank,         // 是否加满
-      warningLight,       // 是否亮灯
-      hasPreviousRecord,  // 上次是否记录
-      remark              // 备注
-    } = req.body
+      date, // '2025-11-28'
+      time, // '22:35'
+      odometer, // 里程
+      volume, // 加油量(L)
+      amount, // 金额(元)
+      pricePerL, // 单价(元/L)
+      fuelGrade, // 92#/95# ...
+      isFullTank, // 是否加满
+      warningLight, // 是否亮灯
+      hasPreviousRecord, // 上次是否记录
+      remark // 备注
+    } = req.body;
 
     // 简单必填校验
-    if (!date || !time || volume == null || amount == null || pricePerL == null || odometer == null) {
-      return res.status(400).json({ error: 'date, time, odometer, volume, amount, pricePerL are required' })
+    if (
+      !date ||
+      !time ||
+      volume == null ||
+      amount == null ||
+      pricePerL == null ||
+      odometer == null
+    ) {
+      return res
+        .status(400)
+        .json({ error: "date, time, odometer, volume, amount, pricePerL are required" });
     }
 
-    const now = new Date()
+    const now = new Date();
     // 把 date + time 拼成一个 JS Date（存成本次加油时间）
-    const isoString = `${date}T${time}:00`
-    const refuelDate = new Date(isoString)
+    const isoString = `${date}T${time}:00`;
+    const refuelDate = new Date(isoString);
 
     const doc = {
       userId,
-      refuelDate,                           // 本次加油时间
-      date,                                 // 原始字符串也可以保留
+      refuelDate, // 本次加油时间
+      date, // 原始字符串也可以保留
       time,
       odometer: Number(odometer),
       volume: Number(volume),
       amount: Number(amount),
       pricePerL: Number(pricePerL),
-      fuelGrade: fuelGrade || '',
+      fuelGrade: fuelGrade || "",
       isFullTank: !!isFullTank,
       warningLight: !!warningLight,
       hasPreviousRecord: !!hasPreviousRecord,
-      remark: remark || '',
+      remark: remark || "",
       createdAt: now,
       updatedAt: now
-    }
+    };
 
-    const result = await refuels.insertOne(doc)
+    const result = await refuels.insertOne(doc);
 
     return res.json({
       success: true,
@@ -332,112 +325,130 @@ app.post('/api/refuels', authMiddleware, async (req, res) => {
         _id: result.insertedId,
         ...doc
       }
-    })
-
+    });
   } catch (err) {
-    console.error('POST /api/refuels error:', err)
-    return res.status(500).json({ error: 'server error' })
+    console.error("POST /api/refuels error:", err);
+    return res.status(500).json({ error: "server error" });
   }
-})
+});
 
 // 获取加油记录列表
-app.get('/api/refuels/list', authMiddleware, async (req, res) => {
+app.get("/api/refuels/list", authMiddleware, async (req, res) => {
   try {
-    const db = getDB()
-    const refuels = db.collection("refuels")
+    const db = getDB();
+    const refuels = db.collection("refuels");
 
-    const userIdStr = req.user && req.user.userId
-    if (!userIdStr) {
-      return res.status(401).json({ error: 'no userId in token' })
+    const userId = req.user.userId;
+    if (!userId) {
+      return res.status(401).json({ error: "no userId in token" });
     }
-    const userId = new ObjectId(userIdStr)
 
     // year 从 query 里取，没传就用当前年
-    const year = parseInt(req.query.year || new Date().getFullYear(), 10)
-    const start = new Date(year, 0, 1)
-    const end = new Date(year + 1, 0, 1)
+    const year = parseInt(req.query.year || new Date().getFullYear(), 10);
+    const start = new Date(year, 0, 1);
+    const end = new Date(year + 1, 0, 1);
 
     // 按时间升序查出来，方便计算间隔里程
     const docs = await refuels
-      .find({
-        userId,
-        refuelDate: { $gte: start, $lt: end }
-      })
+      .find({ userId, refuelDate: { $gte: start, $lt: end } })
       .sort({ refuelDate: 1 })
-      .toArray()
+      .toArray();
 
-    let totalAmount = 0
-    let totalDistance = 0
-    let totalPriceSum = 0
-    let totalPriceCount = 0
-    let totalLper100Sum = 0
-    let totalLper100Count = 0
+    let totalAmount = 0;
+    let totalDistance = 0;
+    let totalPriceSum = 0;
+    let totalPriceCount = 0;
+    let totalLper100Sum = 0;
+    let totalLper100Count = 0;
 
-    let prev = null
+    let anchorOdo = null; // 这一段路程的起点里程
+    let accVolume = 0; // 从起点之后累积的油量
 
     for (const doc of docs) {
-      totalAmount += Number(doc.amount || 0)
+      totalAmount += Number(doc.amount || 0);
+
       if (doc.pricePerL != null) {
-        totalPriceSum += Number(doc.pricePerL)
-        totalPriceCount++
+        totalPriceSum += Number(doc.pricePerL);
+        totalPriceCount++;
       }
 
-      // 计算两次加油之间的里程
-      if (prev && doc.odometer != null && prev.odometer != null) {
-        const dist = Number(doc.odometer) - Number(prev.odometer)
-        if (dist > 0) {
-          doc.distance = dist
-          totalDistance += dist
+      const odo = doc.odometer != null ? Number(doc.odometer) : null;
+      const vol = doc.volume != null ? Number(doc.volume) : null;
 
-          // 只在“加满油”时计算百公里油耗
-          if (doc.isFullTank && doc.volume != null) {
-            const l100 = (Number(doc.volume) / dist) * 100
-            doc.lPer100km = Number(l100.toFixed(2))
-            totalLper100Sum += doc.lPer100km
-            totalLper100Count++
-          }
+      // 1️⃣ 用户明确说「上次没记」
+      if (doc.hasPreviousRecord === false) {
+        anchorOdo = odo;
+        accVolume = 0;
+        // 这一段前面的数据作废，不计算油耗
+        continue;
+      }
 
-          if (doc.amount != null) {
-            const pricePerKm = Number(doc.amount) / dist
-            doc.pricePerKm = Number(pricePerKm.toFixed(2))
-          }
+      // 2️⃣ 初始化起点（第一条有效记录）
+      if (anchorOdo == null && odo != null) {
+        anchorOdo = odo;
+        accVolume = 0;
+        continue;
+      }
+
+      // 3️⃣ 累加本次加油量
+      if (vol != null) {
+        accVolume += vol;
+      }
+
+      // 4️⃣ 当前加满油 -> 可以结算这一段
+      if (doc.isFullTank && odo != null && anchorOdo != null && odo > anchorOdo && accVolume > 0) {
+        const dist = odo - anchorOdo;
+
+        doc.distance = dist;
+
+        const l100 = (accVolume / dist) * 100;
+        doc.lPer100km = Number(l100.toFixed(2));
+
+        totalDistance += dist;
+        totalLper100Sum += doc.lPer100km;
+        totalLper100Count++;
+
+        if (doc.amount != null) {
+          const pricePerKm = Number(doc.amount) / dist;
+          doc.pricePerKm = Number(pricePerKm.toFixed(2));
         }
-      }
 
-      prev = doc
+        // 以当前这次加满为新起点
+        anchorOdo = odo;
+        accVolume = 0;
+      }
     }
 
+    // 年度 summary
     const avgPricePerL =
-      totalPriceCount > 0 ? Number((totalPriceSum / totalPriceCount).toFixed(2)) : 0
+      totalPriceCount > 0 ? Number((totalPriceSum / totalPriceCount).toFixed(2)) : 0;
 
     const avgFuelConsumption =
-      totalLper100Count > 0
-        ? Number((totalLper100Sum / totalLper100Count).toFixed(2))
-        : 0
+      totalLper100Count > 0 ? Number((totalLper100Sum / totalLper100Count).toFixed(2)) : 0;
 
     // 映射成前端列表需要的格式（倒序显示：最近在前）
     const list = docs
       .slice()
       .reverse()
       .map((doc) => {
-        const d = doc.refuelDate ? new Date(doc.refuelDate) : new Date()
-        const month = String(d.getMonth() + 1).padStart(2, '0')
-        const day = String(d.getDate()).padStart(2, '0')
-        const monthDay = `${month}/${day}`
+        const d = doc.refuelDate ? new Date(doc.refuelDate) : new Date();
+        const month = String(d.getMonth() + 1).padStart(2, "0");
+        const day = String(d.getDate()).padStart(2, "0");
+        const monthDay = `${month}/${day}`;
 
         return {
           _id: String(doc._id),
-          monthDay,                      // 10/18
+          monthDay, // 10/18
           lPer100km: doc.lPer100km ?? null,
           distance: doc.distance ?? null,
           amount: doc.amount ?? null,
           pricePerL: doc.pricePerL ?? null,
           volume: doc.volume ?? null,
-          fuelGrade: doc.fuelGrade ?? '',
+          fuelGrade: doc.fuelGrade ?? "",
           isFullTank: !!doc.isFullTank,
           pricePerKm: doc.pricePerKm ?? null
-        }
-      })
+        };
+      });
 
     return res.json({
       success: true,
@@ -451,13 +462,12 @@ app.get('/api/refuels/list', authMiddleware, async (req, res) => {
         },
         records: list
       }
-    })
-
+    });
   } catch (err) {
-    console.error('GET /api/refuels error:', err)
-    return res.status(500).json({ error: 'server error' })
+    console.error("GET /api/refuels error:", err);
+    return res.status(500).json({ error: "server error" });
   }
-})
+});
 
 // 鉴权中间件
 function authMiddleware(req, res, next) {
@@ -483,14 +493,14 @@ function authMiddleware(req, res, next) {
 }
 
 // 上传头像到COS
-function uploadAvatarToCOS({fileBuffer, fileName, mimeType}) {
+function uploadAvatarToCOS({ fileBuffer, fileName, mimeType }) {
   return new Promise((resolve, reject) => {
-    const Bucket = process.env.TENCENT_COS_BUCKET
-    const Region = process.env.TENCENT_COS_REGION
+    const Bucket = process.env.TENCENT_COS_BUCKET;
+    const Region = process.env.TENCENT_COS_REGION;
 
     // 存在 COS 里的路径：avatar/xxxxxx.jpg
-    const ext = mimeType.split("/")[1] || "jpg"
-    const key = `avatar/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`
+    const ext = mimeType.split("/")[1] || "jpg";
+    const key = `avatar/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
 
     cos.putObject(
       {
@@ -503,18 +513,17 @@ function uploadAvatarToCOS({fileBuffer, fileName, mimeType}) {
       },
       (err, data) => {
         if (err) {
-          console.error("COS 上传失败：", err)
-          return reject(err)
+          console.error("COS 上传失败：", err);
+          return reject(err);
         }
 
         // 生成公网访问 URL（默认域名格式）
-        const url = `https://${Bucket}.cos.${Region}.myqcloud.com/${key}`
-        resolve({ url, key, data })
+        const url = `https://${Bucket}.cos.${Region}.myqcloud.com/${key}`;
+        resolve({ url, key, data });
       }
-    )
-  })
+    );
+  });
 }
-
 
 // Connect to MongoDB first, then start the HTTP server so the process stays alive.
 async function startServer() {
