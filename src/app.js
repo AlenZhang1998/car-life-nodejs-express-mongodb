@@ -366,6 +366,10 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
 
     let prev = null; // 上一次加油记录（按时间）
 
+    // 👇 新增：用于计算 “首尾里程差”
+    let firstOdometer = null;
+    let lastOdometer = null;
+
     for (const doc of docs) {
       const amountNum = Number(doc.amount || 0);
       const volumeNum = Number(doc.volume || 0);
@@ -377,6 +381,15 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
       doc.distance = null;
       doc.lPer100km = null;
       doc.pricePerKm = null;
+
+      // 记录首尾 odometer
+      if (doc.odometer != null) {
+        const odo = Number(doc.odometer);
+        if (firstOdometer === null) {
+          firstOdometer = odo; // 第一条
+        }
+        lastOdometer = odo; // 不断覆盖，最终是最后一条
+      }
 
       // 需要：当前 & 上一次 都有合法 odometer，并且当前 > 上一次
       if (prev && doc.odometer != null && prev.odometer != null) {
@@ -406,6 +419,15 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
       }
 
       prev = doc;
+    }
+
+    // 👇 新增：首尾里程差（覆盖里程）
+    let coverageDistance = 0;
+    if (firstOdometer !== null && lastOdometer !== null && lastOdometer > firstOdometer) {
+      coverageDistance = lastOdometer - firstOdometer;
+    } else {
+      // 没有完整里程数据就退而求其次，用区间总和
+      coverageDistance = totalDistance;
     }
 
     // 加权平均油价：总花费 / 总加油量
@@ -448,7 +470,8 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
           totalAmount: Number(totalAmount.toFixed(2)),
           avgFuelConsumption,
           avgPricePerL,
-          totalDistance
+          totalDistance,
+          coverageDistance // 👈 新增：首尾里程差，用来给顶部卡片展示
         },
         records: list
       }
