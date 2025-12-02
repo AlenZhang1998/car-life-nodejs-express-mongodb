@@ -482,6 +482,45 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
   }
 });
 
+// 根据id获取单条加油记录
+app.get("/api/refuels/:id", authMiddleware, async (req, res) => {
+  try {
+    const db = getDB();
+    const refuels = db.collection("refuels");
+
+    const userId = req.user.userId;
+    if (!userId) {
+      return res.status(401).json({ error: "no userId in token" });
+    }
+
+    const _idStr = req.params.id;
+    if (!_idStr) {
+      return res.status(400).json({ error: "id is required" });
+    }
+
+    let _id;
+    try {
+      // ObjectId("692e4c0bd2674a71f01c0b99") 这样的格式
+      _id = new ObjectId(_idStr);
+    } catch (e) {
+      return res.status(400).json({ error: "invalid id format" });
+    }
+
+    const doc = await refuels.findOne({ _id, userId })
+    if (!doc) {
+      return res.status(404).json({ error: "record not found" });
+    }
+
+    return res.json({
+      success: true,
+      data: doc
+    });
+  } catch (err) {
+    console.error("GET /api/refuels/:id error:", err);
+    return res.status(500).json({ error: "server error" });
+  }
+});
+
 // 鉴权中间件
 function authMiddleware(req, res, next) {
   const authHeader = req.headers["authorization"] || "";
