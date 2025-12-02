@@ -629,6 +629,24 @@ app.put("/api/refuels/:id", authMiddleware, async (req, res) => {
   }
 });
 
+// 删除单条加油记录
+app.delete("/api/refuels/:id", authMiddleware, async (req, res) => {
+  try {
+    const db = getDB();
+    const refuels = db.collection("refuels");
+
+    const userId = req.user.userId;
+    const _id = new ObjectId(req.params.id)
+
+    await refuels.deleteOne({ _id, userId })
+
+    return res.json({ success: true })
+  } catch (err) {
+    console.error("DELETE /api/refuels/:id error:", err);
+    return res.status(500).json({ error: "server error" });
+  }
+});
+
 // 鉴权中间件
 function authMiddleware(req, res, next) {
   const authHeader = req.headers["authorization"] || "";
