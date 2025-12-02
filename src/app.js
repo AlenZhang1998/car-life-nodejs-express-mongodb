@@ -521,6 +521,114 @@ app.get("/api/refuels/:id", authMiddleware, async (req, res) => {
   }
 });
 
+// 更新单条加油记录
+app.put("/api/refuels/:id", authMiddleware, async (req, res) => {
+  try {
+    const db = getDB();
+    const refuels = db.collection("refuels");
+
+    const userId = req.user.userId;
+    if (!userId) {
+      return res.status(401).json({ error: "no userId in token" });
+    }
+
+    const id = req.params.id
+    if (!id) {
+      return res.status(400).json({ error: "missing id" })
+    }
+
+    // 兼容前端 axios.post('/api/refuels', { data: payload }) 这种写法
+    const body = req.body && (req.body.data || req.body)
+
+    if (!body) {
+      return res.status(400).json({ error: "missing body" })
+    }
+
+    const {
+      date,            // '2025-11-28'
+      time,            // '22:35'
+      odometer,        // 里程
+      volume,          // 加油量(L)
+      amount,          // 金额(元)
+      pricePerL,       // 单价(元/L)
+      fuelGrade,       // 92#/95# ...
+      isFullTank,      // 是否加满
+      warningLight,    // 是否亮灯
+      hasPreviousRecord,
+      remark
+    } = body
+
+    const update = {
+      updatedAt: new Date()
+    }
+
+    // date + time 拼 refuelDate（有传就更新）
+    if (date && time) {
+      const isoString = `${date}T${time}:00`
+      update.refuelDate = new Date(isoString) // 本次加油时间
+      update.date = date
+      update.time = time
+    }
+
+    if (odometer != null) {
+      update.odometer = Number(odometer)
+    }
+    if (volume != null) {
+      update.volume = Number(volume)
+    }
+    if (amount != null) {
+      update.amount = Number(amount)
+    }
+    if (pricePerL != null) {
+      update.pricePerL = Number(pricePerL)
+    }
+    if (typeof fuelGrade !== "undefined") {
+      update.fuelGrade = fuelGrade || ""
+    }
+    if (typeof isFullTank !== "undefined") {
+      update.isFullTank = !!isFullTank
+    }
+    if (typeof warningLight !== "undefined") {
+      update.warningLight = !!warningLight
+    }
+    if (typeof hasPreviousRecord !== "undefined") {
+      update.hasPreviousRecord = !!hasPreviousRecord
+    }
+    if (typeof remark !== "undefined") {
+      update.remark = remark || ""
+    }
+
+    // 防止 $set 空对象
+    if (Object.keys(update).length <= 1) { // 只有 updatedAt
+      return res.json({ success: true, data: null })
+    }
+
+    const _id = new ObjectId(id)
+
+    // 过滤条件 { _id: new ObjectId(id), userId } 只改自己的数据
+    const result = await refuels.updateOne(
+      { _id, userId },  // 注意 userId 是字符串，不要 new ObjectId(userId)
+      { $set: update }
+    )
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: "not found" })
+    }
+
+    // 返回最新的文档给前端（可选）
+    const doc = await refuels.findOne({ _id, userId })
+
+    return res.json({
+      success: true,
+      data: doc
+    })
+
+  } catch (err) {
+    console.error("PUT /api/refuels/:id error:", err);
+    return res.status(500).json({ error: "server error" });
+  }
+});
+
 // 鉴权中间件
 function authMiddleware(req, res, next) {
   const authHeader = req.headers["authorization"] || "";
