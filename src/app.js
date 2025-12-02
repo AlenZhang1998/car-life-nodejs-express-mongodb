@@ -430,6 +430,7 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
           monthDay, // 11/23
           lPer100km: doc.lPer100km, // 区间油耗（可能为 null）
           distance: doc.distance, // 区间里程（可能为 null）
+          odometer: doc.odometer ?? null, // 👈 本次加油时仪表盘总里程
           amount: doc.amount ?? null, // 本次加油金额
           pricePerL: doc.pricePerL ?? null, // 单价（元/升）
           volume: doc.volume ?? null, // 加油量（升）
