@@ -27,6 +27,18 @@ const formatJoinDateValue = (value) => {
   return `${year}-${month}-${day}`;
 };
 
+// YYYY-MM-DD（用于响应里的日期展示，避免时区导致的前一天问题）
+const formatDateYMD = (value) => {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
+
 // 省份名称规范化：去掉“省/市/自治区”等后缀
 const normalizeProvinceName = (raw = "") => {
   return String(raw)
@@ -351,19 +363,38 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
       return res.status(401).json({ error: "no userId in token" });
     }
 
-    // year 从 query 里取，没传就用当前年
-    const year = parseInt(req.query.year || new Date().getFullYear(), 10);
-    const start = new Date(year, 0, 1);
-    const end = new Date(year + 1, 0, 1);
+    const range = (req.query.range || "").toString(); // all / 3m / 6m / 1y
+    let start = null;
+    let end = null;
+    let year = null;
+
+    // 按 range 计算时间区间
+    if (range === "3m" || range === "6m" || range === "1y") {
+      end = new Date(); // 现在
+      start = new Date(end);
+
+      if (range === "3m") start.setMonth(start.getMonth() - 3);
+      if (range === "6m") start.setMonth(start.getMonth() - 6);
+      if (range === "1y") start.setFullYear(start.getFullYear() - 1);
+    } else if (range === "all") {
+      // 不限制时间，查询全部
+      start = null;
+      end = null;
+    } else {
+      // 兼容老逻辑：没用预设 range，就按 year 查询
+      year = parseInt(req.query.year || new Date().getFullYear(), 10);
+      start = new Date(year, 0, 1);
+      end = new Date(year + 1, 0, 1);
+    }
+
+    // 组装查询条件
+    const query = { userId };
+    if (start && end) {
+      query.refuelDate = { $gte: start, $lt: end };
+    }
 
     // 时间升序查出，当成「行驶轨迹」
-    const docs = await refuels
-      .find({
-        userId,
-        refuelDate: { $gte: start, $lt: end }
-      })
-      .sort({ refuelDate: 1 })
-      .toArray();
+    const docs = await refuels.find(query).sort({ refuelDate: 1 }).toArray();
 
     // 汇总数据
     let totalAmount = 0; // 总花费（所有记录）
@@ -474,6 +505,12 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
       success: true,
       data: {
         summary: {
+          range: range || (year ? `year-${year}` : "all"),
+          startDate: formatDateYMD(start),
+          endDate:
+            year != null
+              ? formatDateYMD(new Date(year, 11, 31)) // 年度查询：显示当年 12-31
+              : formatDateYMD(end),
           year,
           totalAmount: Number(totalAmount.toFixed(2)),
           avgFuelConsumption,
