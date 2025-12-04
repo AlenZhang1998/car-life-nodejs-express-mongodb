@@ -1,13 +1,14 @@
 # Car Life Node.js API
 
-基于 Express + MongoDB 的微信小程序后端，支持一键登录、用户档案、头像上传（腾讯云 COS）以及加油记录管理，可直接接入车生活类小程序。
+基于 Express + MongoDB 的微信小程序后端，覆盖登录、用户档案、头像上传（腾讯云 COS）、加油记录与油价查询，可直接接入车生活类小程序。
 
 ## 功能亮点
 
 - 微信 `jscode2session` 登录：用小程序 `code` 换取 `openid`，自动 upsert 用户，并返回 JWT。
 - 用户档案：查询/更新昵称、头像、交付日期、联系方式、喜好车型等字段，自动补齐 `joinDate`。
 - 头像上传：`multer` 解析小程序的 `multipart/form-data`，上传至腾讯云 COS，回写 `userAvatar`。
-- 加油记录：新增、列表、单条查询与更新，计算区间里程、百公里油耗、单公里成本，以及首尾里程覆盖数。
+- 加油记录：新增/更新/删除/查询列表与单条，支持 3m/6m/1y/all 等区间过滤，计算区间里程、百公里油耗、单公里成本，以及首尾里程覆盖数。
+- 今日油价：按省份查询，统一返回 92#/95#/98#/0#/89# 的油价列表。
 - 启动前先连 MongoDB，连接失败直接退出，避免服务假启动。
 
 ## 运行要求
@@ -44,6 +45,11 @@ TENCENT_COS_SECRET_ID=AKIDxxxxxxxxxxxxx
 TENCENT_COS_SECRET_KEY=xxxxxxxxxxxxxxxx
 TENCENT_COS_BUCKET=car-life-1250000000
 TENCENT_COS_REGION=ap-shanghai
+
+# （可选）油价查询 API
+OIL_API_URL=https://www.mxnzp.com/api/oil/price/province
+OIL_APP_ID=xxxx
+OIL_APP_SECRET=xxxx
 ```
 
 ## API 总览（主要入口 `src/app.js`）
@@ -55,9 +61,11 @@ TENCENT_COS_REGION=ap-shanghai
 | PUT    | `/api/profile`         | 更新档案字段                                 |
 | POST   | `/api/upload/avatar`   | 上传头像到 COS，更新 `userAvatar`            |
 | POST   | `/api/refuels`         | 新增加油记录                                 |
-| GET    | `/api/refuels/list`    | 某年份的加油记录汇总与列表                   |
+| GET    | `/api/refuels/list`    | 加油记录列表与汇总（按年份或 3m/6m/1y/all）   |
 | GET    | `/api/refuels/:id`     | 按 id 获取单条加油记录                       |
 | PUT    | `/api/refuels/:id`     | 按 id 更新加油记录（支持 body 或 body.data） |
+| DELETE | `/api/refuels/:id`     | 删除加油记录                                 |
+| GET    | `/api/oil-price`       | 按省份查询今日油价                           |
 
 > 除登录外，其余接口均需 `Authorization: Bearer <token>`。
 
@@ -119,6 +127,24 @@ TENCENT_COS_REGION=ap-shanghai
   - `coverageDistance`：本年首尾里程差（无完整里程时回退为区间总和）
 - `GET /api/refuels/:id`：获取单条记录详情。
 - `PUT /api/refuels/:id`：更新单条记录；`date + time` 会同时更新 `refuelDate`，请求体可为 `{ ... }` 或 `{ "data": { ... } }`。
+- `DELETE /api/refuels/:id`：删除当前用户的指定记录。
+
+#### 列表 & 汇总 `GET /api/refuels/list`
+
+- 支持 query `range`：`3m` / `6m` / `1y` / `all`，默认按 `year`（不传则当前年份）。
+- 响应 `summary` 含：
+  - `totalAmount`：总花费
+  - `avgFuelConsumption`：平均油耗（升/100km）
+  - `avgPricePerL`：加权平均油价（元/升）
+  - `totalDistance`：区间累计里程（基于相邻 odometer 的差值）
+  - `coverageDistance`：首尾 odometer 差（缺失时回退为 `totalDistance`）
+  - `startDate` / `endDate` / `dateRangeDays`
+
+### 今日油价 `GET /api/oil-price`
+
+- Query：`province`（必填，例：`广东`，会自动去掉“省/市”后缀）。
+- 需要配置 `OIL_API_URL`、`OIL_APP_ID`、`OIL_APP_SECRET`。
+- 返回 `prices` 数组：`[{ label: "92#", value: "7.42" }, ...]`。
 
 ### 调试版入口（可选）
 
