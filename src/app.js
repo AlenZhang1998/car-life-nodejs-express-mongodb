@@ -39,6 +39,16 @@ const formatDateYMD = (value) => {
   return `${y}-${m}-${d}`;
 };
 
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+// 仅保留日期部分，避免跨时区/时分秒带来的偏移
+const normalizeDateOnly = (value) => {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+};
+
 // 省份名称规范化：去掉“省/市/自治区”等后缀
 const normalizeProvinceName = (raw = "") => {
   return String(raw)
@@ -476,6 +486,18 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
     const avgFuelConsumption =
       totalDistance > 0 ? Number(((totalVolumeUsed / totalDistance) * 100).toFixed(2)) : 0;
 
+    // 统计区间（用于前端“平均行程”等口径）
+    const firstRecordDate = docs[0]?.refuelDate ? new Date(docs[0].refuelDate) : null;
+    const effectiveStart = start || firstRecordDate || null;
+    const effectiveEnd = year != null ? new Date(year, 11, 31) : end || new Date();
+
+    const startForDays = normalizeDateOnly(effectiveStart);
+    const endForDays = normalizeDateOnly(effectiveEnd);
+    let dateRangeDays = null;
+    if (startForDays && endForDays && endForDays >= startForDays) {
+      dateRangeDays = Math.floor((endForDays.getTime() - startForDays.getTime()) / ONE_DAY_MS) + 1;
+    }
+
     // 输出给前端的列表（按时间倒序：最近在前）
     const list = docs
       .slice()
@@ -506,11 +528,9 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
       data: {
         summary: {
           range: range || (year ? `year-${year}` : "all"),
-          startDate: formatDateYMD(start),
-          endDate:
-            year != null
-              ? formatDateYMD(new Date(year, 11, 31)) // 年度查询：显示当年 12-31
-              : formatDateYMD(end),
+          startDate: formatDateYMD(effectiveStart),
+          endDate: formatDateYMD(effectiveEnd),
+          dateRangeDays: dateRangeDays ?? 0,
           year,
           totalAmount: Number(totalAmount.toFixed(2)),
           avgFuelConsumption,
