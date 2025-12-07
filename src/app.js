@@ -511,6 +511,7 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
         return {
           _id: String(doc._id),
           monthDay, // 11/23
+          date: doc.date || formatDateYMD(doc.refuelDate),
           lPer100km: doc.lPer100km, // 区间油耗（可能为 null）
           distance: doc.distance, // 区间里程（可能为 null）
           odometer: doc.odometer ?? null, // 👈 本次加油时仪表盘总里程
