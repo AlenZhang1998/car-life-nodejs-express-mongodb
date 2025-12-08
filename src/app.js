@@ -482,7 +482,7 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
     // 加权平均油价：总花费 / 总加油量
     const avgPricePerL = totalVolume > 0 ? Number((totalAmount / totalVolume).toFixed(2)) : 0;
 
-    // 全年平均油耗：总油量 / 总里程 * 100
+    // 全年平均油耗：总油量 / 总里程 * 100 废弃 不使用这个字段了
     const avgFuelConsumption =
       totalDistance > 0 ? Number(((totalVolumeUsed / totalDistance) * 100).toFixed(2)) : 0;
 
