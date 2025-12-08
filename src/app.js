@@ -362,9 +362,29 @@ app.post("/api/refuels", authMiddleware, async (req, res) => {
   }
 });
 
-// 获取加油记录列表
+// 获取加油记录列表（支持 range / year，支持「两次加满区间」油耗统计）
 app.get("/api/refuels/list", authMiddleware, async (req, res) => {
   try {
+    // 这里放一些仅在此路由内部使用的小工具函数，避免未定义问题
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+    const normalizeDateOnly = (value) => {
+      if (!value) return null;
+      const d = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(d.getTime())) return null;
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    };
+
+    const formatDateYMD = (value) => {
+      if (!value) return "";
+      const d = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(d.getTime())) return "";
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    };
+
     const db = getDB();
     const refuels = db.collection("refuels");
 
@@ -411,12 +431,10 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
     let totalVolume = 0; // 总加油量（所有记录）
 
     let totalDistance = 0; // 参与统计的“区间总里程”
-    let totalVolumeUsed = 0; // 参与统计的“区间总油量”
+    let totalVolumeUsed = 0; // 参与统计的“区间总油量”（旧逻辑，先保留）
 
     let prev = null; // 上一次加油记录（按时间）
-
-    // 👇 新增：用于计算 “首尾里程差”
-    let firstOdometer = null;
+    let firstOdometer = null; // 用于覆盖里程
     let lastOdometer = null;
 
     for (const doc of docs) {
@@ -426,10 +444,11 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
       totalAmount += amountNum;
       totalVolume += volumeNum;
 
-      // 默认区间数据先清空
+      // 默认区间/油耗数据先清空
       doc.distance = null;
       doc.lPer100km = null;
       doc.pricePerKm = null;
+      doc.consumption = null; // 👈 新增：两次加满区间油耗
 
       // 记录首尾 odometer
       if (doc.odometer != null) {
@@ -440,7 +459,7 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
         lastOdometer = odo; // 不断覆盖，最终是最后一条
       }
 
-      // 需要：当前 & 上一次 都有合法 odometer，并且当前 > 上一次
+      // 旧逻辑：相邻两次之间的距离、单次区间油耗 & 单公里成本
       if (prev && doc.odometer != null && prev.odometer != null) {
         const currOdo = Number(doc.odometer);
         const prevOdo = Number(prev.odometer);
@@ -451,11 +470,10 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
           doc.distance = dist;
           totalDistance += dist;
 
-          // 区间油耗：用“当前这次加了多少升”来算上一段路
+          // 区间油耗：用“当前这次加了多少升”来算上一段路（你现在主要用两次加满的算法，这个先保留兼容）
           if (volumeNum > 0) {
             const l100 = (volumeNum / dist) * 100;
             doc.lPer100km = Number(l100.toFixed(2));
-
             totalVolumeUsed += volumeNum;
           }
 
@@ -470,21 +488,80 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
       prev = doc;
     }
 
-    // 👇 新增：首尾里程差（覆盖里程）
+    // 👇 首尾里程差（覆盖里程）
     let coverageDistance = 0;
     if (firstOdometer !== null && lastOdometer !== null && lastOdometer > firstOdometer) {
       coverageDistance = lastOdometer - firstOdometer;
     } else {
-      // 没有完整里程数据就退而求其次，用区间总和
       coverageDistance = totalDistance;
     }
 
     // 加权平均油价：总花费 / 总加油量
     const avgPricePerL = totalVolume > 0 ? Number((totalAmount / totalVolume).toFixed(2)) : 0;
 
-    // 全年平均油耗：总油量 / 总里程 * 100 废弃 不使用这个字段了
-    const avgFuelConsumption =
-      totalDistance > 0 ? Number(((totalVolumeUsed / totalDistance) * 100).toFixed(2)) : 0;
+    // ========== 新增：按「两次加满区间」计算 consumption & 平均油耗 ==========
+    const fullTankConsumptions = []; // 每个整段的平均油耗（L/100km）
+    let lastFullIndex = -1; // 升序 docs 中，上一个“加满”记录的下标
+
+    for (let i = 0; i < docs.length; i++) {
+      const rec = docs[i];
+
+      if (!rec.isFullTank) continue; // 不是“加满”的记录，先忽略
+
+      if (lastFullIndex === -1) {
+        // 第一次遇到“加满”：只标记起点
+        lastFullIndex = i;
+        continue;
+      }
+
+      const startDoc = docs[lastFullIndex];
+      const endDoc = rec;
+
+      const startOdo = startDoc.odometer != null ? Number(startDoc.odometer) : NaN;
+      const endOdo = endDoc.odometer != null ? Number(endDoc.odometer) : NaN;
+
+      const distance =
+        Number.isFinite(startOdo) && Number.isFinite(endOdo) ? endOdo - startOdo : NaN;
+
+      if (!(distance > 0)) {
+        // 里程异常，跳过这段
+        lastFullIndex = i;
+        continue;
+      }
+
+      // 区间内油量 = (lastFullIndex, i] 的 volume 之和
+      let sumVolume = 0;
+      for (let k = lastFullIndex + 1; k <= i; k++) {
+        const v = docs[k].volume != null ? Number(docs[k].volume) : NaN;
+        if (!Number.isNaN(v)) {
+          sumVolume += v;
+        }
+      }
+
+      if (!(sumVolume > 0)) {
+        lastFullIndex = i;
+        continue;
+      }
+
+      // 区间平均油耗 L/100km
+      const l100 = (sumVolume / distance) * 100;
+      const rounded = Number(l100.toFixed(2));
+
+      // 把这段内的记录都打上同一个 consumption（你前端是倒序展示，这里还是按升序塞）
+      for (let k = lastFullIndex + 1; k <= i; k++) {
+        docs[k].consumption = rounded;
+      }
+
+      fullTankConsumptions.push(rounded);
+      lastFullIndex = i;
+    }
+
+    // 用「每段的 consumption」求一个整体平均油耗
+    let avgFuelConsumption = 0;
+    if (fullTankConsumptions.length > 0) {
+      const sum = fullTankConsumptions.reduce((acc, v) => acc + v, 0);
+      avgFuelConsumption = Number((sum / fullTankConsumptions.length).toFixed(2));
+    }
 
     // 统计区间（用于前端“平均行程”等口径）
     const firstRecordDate = docs[0]?.refuelDate ? new Date(docs[0].refuelDate) : null;
@@ -510,17 +587,18 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
 
         return {
           _id: String(doc._id),
-          monthDay, // 11/23
+          monthDay, // 例如 10/09
           date: doc.date || formatDateYMD(doc.refuelDate),
-          lPer100km: doc.lPer100km, // 区间油耗（可能为 null）
+          lPer100km: doc.lPer100km, // 旧的「单次区间」油耗，留着给你备用
           distance: doc.distance, // 区间里程（可能为 null）
-          odometer: doc.odometer ?? null, // 👈 本次加油时仪表盘总里程
+          odometer: doc.odometer ?? null, // 本次加油时仪表盘总里程
           amount: doc.amount ?? null, // 本次加油金额
           pricePerL: doc.pricePerL ?? null, // 单价（元/升）
           volume: doc.volume ?? null, // 加油量（升）
           fuelGrade: doc.fuelGrade ?? "",
           isFullTank: !!doc.isFullTank, // 是否加满
-          pricePerKm: doc.pricePerKm ?? null // 区间单公里成本
+          pricePerKm: doc.pricePerKm ?? null, // 区间单公里成本
+          consumption: doc.consumption // 👈 两次加满区间平均油耗（L/100km），否则为 null
         };
       });
 
@@ -534,10 +612,10 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
           dateRangeDays: dateRangeDays ?? 0,
           year,
           totalAmount: Number(totalAmount.toFixed(2)),
-          avgFuelConsumption,
+          avgFuelConsumption, // 👈 新逻辑算出来的平均油耗
           avgPricePerL,
           totalDistance,
-          coverageDistance // 👈 新增：首尾里程差，用来给顶部卡片展示
+          coverageDistance
         },
         records: list
       }
