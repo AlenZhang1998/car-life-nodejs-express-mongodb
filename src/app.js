@@ -393,23 +393,28 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
       return res.status(401).json({ error: "no userId in token" });
     }
 
-    const range = (req.query.range || "").toString().trim(); // all / 3m / 6m / 1y / 2023(年份)
+    // 支持：all / {n}m / {n}y / 4 位年份（range 或 year 参数）
+    const range = (req.query.range || "").toString().trim(); // 例如 3m、6m、1y、2y、2023
     const yearParam = (req.query.year || "").toString().trim();
     let start = null;
     let end = null;
     let year = null;
 
+    const rangeMatch = range.match(/^(\d+)([my])$/i); // 3m / 2y / 12m 等
     const yearFromRange = /^\d{4}$/.test(range) ? Number(range) : null;
     const yearFromQuery = /^\d{4}$/.test(yearParam) ? Number(yearParam) : null;
 
     // 按 range 计算时间区间
-    if (range === "3m" || range === "6m" || range === "1y") {
-      end = new Date(); // 现在
-      start = new Date(end);
+    if (rangeMatch) {
+      const value = Number(rangeMatch[1]);
+      const unit = rangeMatch[2].toLowerCase();
+      if (value > 0) {
+        end = new Date(); // 现在
+        start = new Date(end);
 
-      if (range === "3m") start.setMonth(start.getMonth() - 3);
-      if (range === "6m") start.setMonth(start.getMonth() - 6);
-      if (range === "1y") start.setFullYear(start.getFullYear() - 1);
+        if (unit === "m") start.setMonth(start.getMonth() - value); // 最近 N 个月
+        if (unit === "y") start.setFullYear(start.getFullYear() - value); // 最近 N 年
+      }
     } else if (range === "all") {
       // 不限制时间，查询全部
       start = null;
