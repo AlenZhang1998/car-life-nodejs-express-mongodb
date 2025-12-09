@@ -393,10 +393,14 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
       return res.status(401).json({ error: "no userId in token" });
     }
 
-    const range = (req.query.range || "").toString(); // all / 3m / 6m / 1y
+    const range = (req.query.range || "").toString().trim(); // all / 3m / 6m / 1y / 2023(年份)
+    const yearParam = (req.query.year || "").toString().trim();
     let start = null;
     let end = null;
     let year = null;
+
+    const yearFromRange = /^\d{4}$/.test(range) ? Number(range) : null;
+    const yearFromQuery = /^\d{4}$/.test(yearParam) ? Number(yearParam) : null;
 
     // 按 range 计算时间区间
     if (range === "3m" || range === "6m" || range === "1y") {
@@ -411,8 +415,8 @@ app.get("/api/refuels/list", authMiddleware, async (req, res) => {
       start = null;
       end = null;
     } else {
-      // 兼容老逻辑：没用预设 range，就按 year 查询
-      year = parseInt(req.query.year || new Date().getFullYear(), 10);
+      // 兼容老逻辑：没用预设 range，就按 year 查询；range 传 2023 也当成 year
+      year = yearFromRange ?? yearFromQuery ?? new Date().getFullYear();
       start = new Date(year, 0, 1);
       end = new Date(year + 1, 0, 1);
     }
