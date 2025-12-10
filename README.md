@@ -7,7 +7,7 @@
 - 微信 `jscode2session` 登录：用小程序 `code` 换取 `openid`，自动 upsert 用户，并返回 JWT。
 - 用户档案：查询/更新昵称、头像、交付日期、联系方式、喜好车型等字段，自动补齐 `joinDate`。
 - 头像上传：`multer` 解析小程序的 `multipart/form-data`，上传至腾讯云 COS，回写 `userAvatar`。
-- 加油记录：新增/更新/删除/查询列表与单条，支持 3m/6m/1y/all 等区间过滤，计算区间里程、百公里油耗、单公里成本，以及首尾里程覆盖数。
+- 加油记录：新增/更新/删除/查询列表与单条，支持 3m/6m/1y/2y/3y/all 及指定年份过滤，计算区间里程、百公里油耗、单公里成本，以及首尾里程覆盖数。
 - 今日油价：按省份查询，统一返回 92#/95#/98#/0#/89# 的油价列表。
 - 启动前先连 MongoDB，连接失败直接退出，避免服务假启动。
 
@@ -120,7 +120,7 @@ OIL_APP_SECRET=xxxx
   "remark": "高速服务区加满"
 }
 ```
-- `GET /api/refuels/list`：`year` query 可选，默认当前年份。返回 `summary` + `records`，含：
+- `GET /api/refuels/list`：支持 `range` 或 `year`（默认当前年份）。返回 `summary` + `records`，含：
   - `distance`：与上一条记录的里程差（区间里程）
   - `lPer100km`：上一段路的百公里油耗（基于当前加油量）
   - `pricePerKm`：上一段路的平均单公里成本
@@ -131,10 +131,14 @@ OIL_APP_SECRET=xxxx
 
 #### 列表 & 汇总 `GET /api/refuels/list`
 
-- 支持 query `range`：`3m` / `6m` / `1y` / `all`，默认按 `year`（不传则当前年份）。
+- 支持 `range`：
+  - 滚动区间：`3m` / `6m` / `1y` / `2y` / `3y` / 任意 `{n}m`、`{n}y`（向前滚动 n 个月/年，截止今天）
+  - 全量：`all`
+  - 指定年份：`2023`（4 位数字，等价于 `year=2023`）
+- `year`：可直接传年份（4 位数字），未传 `range` 时使用；默认当前年份。
 - 响应 `summary` 含：
   - `totalAmount`：总花费
-  - `avgFuelConsumption`：平均油耗（升/100km）
+  - `avgFuelConsumption`：平均油耗（升/100km），取“加满→下一次加满”各区间油耗的算术平均
   - `avgPricePerL`：加权平均油价（元/升）
   - `totalDistance`：区间累计里程（基于相邻 odometer 的差值）
   - `coverageDistance`：首尾 odometer 差（缺失时回退为 `totalDistance`）
