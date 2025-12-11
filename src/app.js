@@ -890,9 +890,58 @@ app.post("/api/feedback", authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, message: "反馈内容不能为空" });
     }
 
-    // 这里可同时把 tokenUserId/userId 和 username 也写入 DB
-    // await db.collection('feedbacks').insertOne({ ... })
+    // 查询最近的反馈记录
+    const db = getDB();
+    const lastFeedback = await db
+      .collection("feedbacks")
+      .find({ userId: tokenUserId })
+      .sort({ createdAt: -1 }) // 排序，获取最近的反馈
+      .limit(1)
+      .toArray();
 
+    const now = new Date();
+    if (lastFeedback.length > 0) {
+      const lastSubmitTime = lastFeedback[0].createdAt; // 最后一次反馈时间
+      const timeDiff = now - new Date(lastSubmitTime); // 计算时间差，单位是毫秒
+
+      if (timeDiff < 600000) {
+        // 如果时间差小于10分钟
+        return res.status(400).json({
+          success: false,
+          message: "提交过于频繁, 请等待10分钟后再提交反馈哈"
+        });
+      }
+    }
+
+    // 如果超过10分钟，可以提交并记录新的反馈时间
+    await db.collection("feedbacks").insertOne({
+      feeling,
+      content: String(content),
+      contact: contact || "",
+      images: Array.isArray(images) ? images : [],
+      userId: tokenUserId || userId || "",
+      nickname: username || req.user?.nickname || "",
+      meta: {
+        page,
+        system,
+        platform,
+        model,
+        brand,
+        language,
+        screenSize,
+        city,
+        appVersion,
+        clientUserId: userId || ""
+      },
+      createdAt: now
+    });
+
+    // 更新用户的最后反馈时间
+    await db
+      .collection("users")
+      .updateOne({ userId: tokenUserId }, { $set: { lastFeedbackTime: now } });
+
+    // 发送反馈到企业微信机器人
     await sendFeedbackToWecomRobot({
       feeling: feeling || "",
       content: String(content),
