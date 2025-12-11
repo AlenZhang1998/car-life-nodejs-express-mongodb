@@ -32,45 +32,60 @@ export async function sendFeedbackToWecomRobot(payload) {
   if (!WECHAT_ROBOT_WEBHOOK) return;
 
   const { feeling, content, contact, images = [], userId, nickname, meta } = payload;
+  const feelingObj = {
+    great: "👍很好用",
+    ok: "🙂还可以",
+    bug: "🪲有问题",
+    bad: "😣体验糟糕"
+  };
 
   // 处理 Markdown 格式内容
   const safeContent = content.trim() || "(用户未填写内容)";
   /** @type {string[]} */
   const lines = [];
 
-  lines.push("**📢 收到新的用户反馈**");
+  lines.push("========== 📢 收到新的用户反馈 ==========");
   lines.push("");
-  lines.push(`- **用户感受**: **${feeling}**`);
-  lines.push(`- **反馈内容**:`);
-  lines.push(`> ${safeContent.replace(/\n/g, "\n> ")}`);
+  lines.push(`用户: ${nickname}`);
+  lines.push(`用户Id: ${userId}`);
+  lines.push(`用户感受: ${feelingObj[feeling]}`);
+  lines.push("");
+
+  lines.push(`📝 反馈内容详情:`);
+  lines.push(`${safeContent.replace(/\n/g, "\n")}`); // 使用引用块格式化内容
   lines.push("");
 
   // 添加联系方式
   if (contact) {
-    lines.push(`- **联系方式**: '${contact}'`);
+    lines.push(`📞 联系方式: ${contact}`);
+    lines.push("");
   }
 
-  // 添加图片链接
+  // 添加图片
   if (images.length > 0) {
-    lines.push("- **截图**:");
-    images.forEach((img) => {
-      lines.push(`  - ![截图](${img})`);
+    lines.push("🖼️ 附带截图");
+    // 使用图片链接直接显示，并加粗提示
+    images.forEach((img, index) => {
+      lines.push(`[截图 ${index + 1} 链接](${img})`);
+      lines.push(`![截图预览](${img})`); // 使用引用块包裹截图预览，视觉上更清晰
     });
+    lines.push("");
   }
 
   // 添加元数据（如设备信息等）
   lines.push("");
-  lines.push(`- **设备信息**:`);
-  lines.push(`  - 页面: ${meta.page}`);
-  lines.push(`  - 系统: ${meta.system}`);
-  lines.push(`  - 平台: ${meta.platform}`);
-  lines.push(`  - 设备型号: ${meta.model}`);
-  lines.push(`  - 设备品牌: ${meta.brand}`);
-  lines.push(`  - 语言: ${meta.language}`);
-  lines.push(`  - 屏幕大小: ${meta.screenSize}`);
-  lines.push(`  - 城市: ${meta.city}`);
-  lines.push(`  - 应用版本: ${meta.appVersion}`);
-  lines.push(`  - 客户端用户 ID: ${meta.clientUserId}`);
+  // lines.push(`***`); // 分隔线
+  lines.push(`⚙️ 设备与环境信息`);
+  lines.push("");
+  // lines.push(`| 字段 | 详情 |`);
+  // lines.push(`| :--- | :--- |`);
+  lines.push(`设备型号：${meta.brand}-${meta.model}`);
+  lines.push(`平   台：${meta.platform}`);
+  lines.push(`系   统：${meta.system}`);
+  lines.push(`语   言：${meta.language}`);
+  lines.push(`屏幕大小：${meta.screenSize}`);
+  lines.push(`城   市：${meta.city}`);
+  lines.push(`应用版本：${meta.appVersion}`);
 
   // 构建消息对象
   const message = {
