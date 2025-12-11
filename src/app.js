@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import { connectDB, getDB } from "./db.js";
 import cos from "./cos.js";
 import multer from "multer";
+import { sendFeedbackToWecomRobot } from "./wecomRobot.js";
 
 dotenv.config();
 
@@ -862,42 +863,58 @@ app.get("/api/oil-price", authMiddleware, async (req, res) => {
 // 意见反馈
 app.post("/api/feedback", authMiddleware, async (req, res) => {
   try {
-    const userId = req.user.userId;
-    if (!userId) {
+    const tokenUserId = req.user.userId;
+    if (!tokenUserId) {
       return res.status(401).json({ error: "no userId in token" });
     }
 
     const {
-      feeling, // 最近使用感受
-      content, // 反馈内容
-      contact, // 联系方式
-      images // 截图数组（如果你有做上传）
+      feeling,
+      content,
+      contact,
+      images,
+      page,
+      system,
+      platform,
+      model,
+      brand,
+      language,
+      screenSize,
+      city,
+      appVersion,
+      username,
+      userId // 前端兜底传的 id，可与 token 解出的对比
     } = req.body || {};
 
     if (!content || !String(content).trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "反馈内容不能为空"
-      });
+      return res.status(400).json({ success: false, message: "反馈内容不能为空" });
     }
 
-    // TODO: 这里可以顺便存数据库（feedbacks 集合），后面想做后台统计就有数据
+    // 这里可同时把 tokenUserId/userId 和 username 也写入 DB
     // await db.collection('feedbacks').insertOne({ ... })
 
-    // 发送到企业微信机器人
     await sendFeedbackToWecomRobot({
       feeling: feeling || "",
       content: String(content),
       contact: contact || "",
       images: Array.isArray(images) ? images : [],
-      userId: req.user?._id, // 如果有登录信息
-      nickname: req.user?.nickname // 自己根据实际字段改
+      userId: tokenUserId || userId || "",
+      nickname: username || req.user?.nickname || "",
+      meta: {
+        page,
+        system,
+        platform,
+        model,
+        brand,
+        language,
+        screenSize,
+        city,
+        appVersion,
+        clientUserId: userId || ""
+      }
     });
 
-    return res.json({
-      success: true,
-      message: "已收到你的反馈，感谢～"
-    });
+    return res.json({ success: true, message: "已收到你的反馈，感谢～" });
   } catch (err) {
     console.error("POST /api/feedback error:", err);
     return res.status(500).json({ error: "server error" });
