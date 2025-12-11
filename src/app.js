@@ -859,6 +859,52 @@ app.get("/api/oil-price", authMiddleware, async (req, res) => {
   }
 });
 
+// 意见反馈
+app.post("/api/feedback", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    if (!userId) {
+      return res.status(401).json({ error: "no userId in token" });
+    }
+
+    const {
+      feeling,   // 最近使用感受
+      content,   // 反馈内容
+      contact,   // 联系方式
+      images     // 截图数组（如果你有做上传）
+    } = req.body || {};
+
+    if (!content || !String(content).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: '反馈内容不能为空'
+      });
+    }
+
+    // TODO: 这里可以顺便存数据库（feedbacks 集合），后面想做后台统计就有数据
+    // await db.collection('feedbacks').insertOne({ ... })
+
+    // 发送到企业微信机器人
+    await sendFeedbackToWecomRobot({
+      feeling: feeling || '',
+      content: String(content),
+      contact: contact || '',
+      images: Array.isArray(images) ? images : [],
+      userId: (req as any).user?._id,       // 如果有登录信息
+      nickname: (req as any).user?.nickname // 自己根据实际字段改
+    });
+
+    return res.json({
+      success: true,
+      message: '已收到你的反馈，感谢～'
+    });
+    
+  } catch (err) {
+    console.error("POST /api/feedback error:", err);
+    return res.status(500).json({ error: "server error" });
+  }
+});
+
 // 鉴权中间件
 function authMiddleware(req, res, next) {
   const authHeader = req.headers["authorization"] || "";
