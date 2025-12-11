@@ -904,6 +904,50 @@ app.post("/api/feedback", authMiddleware, async (req, res) => {
   }
 });
 
+// 上传意见反馈的截图
+app.post(
+  "/api/upload/feedback-image",
+  authMiddleware,
+  upload.array("files", 3),
+  async (req, res) => {
+    // 最多3张图片
+    try {
+      const userId = req.user.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "no userId in token" });
+      }
+      if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ success: false, error: "no files" });
+      }
+
+      // 上传所有截图
+      const uploadPromises = req.files.map(async (file) => {
+        const { buffer, mimetype, originalname } = file;
+        return uploadImageToCOS({
+          fileBuffer: buffer,
+          fileName: originalname,
+          mimeType: mimetype,
+          folder: "feedback" // 存到 feedback 文件夹
+        });
+      });
+
+      // 等待所有上传完成
+      const uploadResults = await Promise.all(uploadPromises);
+
+      // 返回所有上传结果
+      const imageUrls = uploadResults.map((result) => result.url);
+
+      res.json({
+        success: true,
+        data: imageUrls
+      });
+    } catch (err) {
+      console.error("POST /api/upload/feedback-image error:", err);
+      return res.status(500).json({ error: "server error" });
+    }
+  }
+);
+
 // 鉴权中间件
 function authMiddleware(req, res, next) {
   const authHeader = req.headers["authorization"] || "";
