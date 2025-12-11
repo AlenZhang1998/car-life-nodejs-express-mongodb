@@ -868,16 +868,16 @@ app.post("/api/feedback", authMiddleware, async (req, res) => {
     }
 
     const {
-      feeling,   // 最近使用感受
-      content,   // 反馈内容
-      contact,   // 联系方式
-      images     // 截图数组（如果你有做上传）
+      feeling, // 最近使用感受
+      content, // 反馈内容
+      contact, // 联系方式
+      images // 截图数组（如果你有做上传）
     } = req.body || {};
 
     if (!content || !String(content).trim()) {
       return res.status(400).json({
         success: false,
-        message: '反馈内容不能为空'
+        message: "反馈内容不能为空"
       });
     }
 
@@ -886,19 +886,18 @@ app.post("/api/feedback", authMiddleware, async (req, res) => {
 
     // 发送到企业微信机器人
     await sendFeedbackToWecomRobot({
-      feeling: feeling || '',
+      feeling: feeling || "",
       content: String(content),
-      contact: contact || '',
+      contact: contact || "",
       images: Array.isArray(images) ? images : [],
-      userId: (req as any).user?._id,       // 如果有登录信息
-      nickname: (req as any).user?.nickname // 自己根据实际字段改
+      userId: req.user?._id, // 如果有登录信息
+      nickname: req.user?.nickname // 自己根据实际字段改
     });
 
     return res.json({
       success: true,
-      message: '已收到你的反馈，感谢～'
+      message: "已收到你的反馈，感谢～"
     });
-    
   } catch (err) {
     console.error("POST /api/feedback error:", err);
     return res.status(500).json({ error: "server error" });
