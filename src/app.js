@@ -258,7 +258,7 @@ app.post("/api/upload/avatar", authMiddleware, upload.single("file"), async (req
     }
 
     // 1. 上传头像到 COS
-    const { url, key, data } = await uploadAvatarToCOS({
+    const { url, key, data } = await uploadImageToCOS({
       fileBuffer: file.buffer,
       fileName: file.originalname,
       mimeType: file.mimetype
@@ -927,15 +927,14 @@ function authMiddleware(req, res, next) {
   }
 }
 
-// 上传头像到COS
-function uploadAvatarToCOS({ fileBuffer, fileName, mimeType }) {
+// 上传图片到COS
+function uploadImageToCOS({ fileBuffer, fileName, mimeType, folder = "avatar" }) {
   return new Promise((resolve, reject) => {
     const Bucket = process.env.TENCENT_COS_BUCKET;
     const Region = process.env.TENCENT_COS_REGION;
 
-    // 存在 COS 里的路径：avatar/xxxxxx.jpg
     const ext = mimeType.split("/")[1] || "jpg";
-    const key = `avatar/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
+    const key = `${folder}/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
 
     cos.putObject(
       {
@@ -952,7 +951,6 @@ function uploadAvatarToCOS({ fileBuffer, fileName, mimeType }) {
           return reject(err);
         }
 
-        // 生成公网访问 URL（默认域名格式）
         const url = `https://${Bucket}.cos.${Region}.myqcloud.com/${key}`;
         resolve({ url, key, data });
       }
