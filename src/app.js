@@ -212,6 +212,8 @@ app.get("/api/profile", authMiddleware, async (req, res) => {
       favoriteCarModel: user.favoriteCarModel || "",
       phone: user.phone || "",
       email: user.email || "",
+      province: user.province || "",
+      city: user.city || "",
       joinDate: formatJoinDateValue(user.joinDate || user.createdAt || "")
     });
   } catch (err) {
@@ -226,7 +228,17 @@ app.put("/api/profile", authMiddleware, async (req, res) => {
     const db = getDB();
     const users = db.collection("users");
 
-    const { username, userAvatar, gender, deliveryDate, favoriteCarModel, phone, email } = req.body;
+    const {
+      username,
+      userAvatar,
+      gender,
+      deliveryDate,
+      favoriteCarModel,
+      phone,
+      email,
+      province,
+      city
+    } = req.body;
 
     const update = {
       updatedAt: new Date()
@@ -239,6 +251,8 @@ app.put("/api/profile", authMiddleware, async (req, res) => {
     if (favoriteCarModel != null) update.favoriteCarModel = favoriteCarModel;
     if (phone != null) update.phone = phone;
     if (email != null) update.email = email;
+    if (province != null) update.province = province;
+    if (city != null) update.city = city;
 
     await users.updateOne({ _id: new ObjectId(req.user.userId) }, { $set: update });
 
