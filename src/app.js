@@ -7,6 +7,7 @@ import { connectDB, getDB } from "./db.js";
 import cos from "./cos.js";
 import multer from "multer";
 import { sendFeedbackToWecomRobot } from "./wecomRobot.js";
+import cors from "cors";
 
 dotenv.config();
 
@@ -60,9 +61,25 @@ const normalizeProvinceName = (raw = "") => {
 // 让 Express 能解析 JSON 请求体
 app.use(express.json());
 
+app.use(cors());
+
 // 让 Express 识别微信小程序上传的 multipart/form-data
 const upload = multer({
   storage: multer.memoryStorage() // 文件放在内存 buffer 里，方便直接传 COS
+});
+
+app.get("/", (req, res) => {
+  res.json({ ok: true, msg: "api is running 666" });
+});
+
+app.get("/health", (req, res) => {
+  // console.log("Health route registered: GET /health");
+  res.json({
+    ok: true,
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime() // 进程运行秒数
+  });
 });
 
 // 微信登录：用 code 换 openid，并在数据库里创建/更新用户
